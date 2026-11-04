@@ -1,0 +1,30 @@
+# Mozconfig for the Firefox-Legacy High Sierra port — Penryn compatibility build.
+#
+# Lowest supported CPU floor for the port: Penryn (SSE4.1). This covers every
+# Mac that officially supports macOS 10.13, including the Core 2 Duo variants
+# (Mac mini 2010, MacBook Air 2010, MacBook Pro 13" 2010, iMac late-2009 Core 2
+# Duo) and the Mac Pro 3,1 (2008 Harpertown Xeon).
+#
+# No explicit -march= is set: Mozilla's bundled clang defaults to
+# -target-cpu=penryn when no override is supplied, so omitting the CFLAGS
+# -march= line is equivalent to and cleaner than writing -march=penryn.
+#
+# PGO is intentionally omitted — same rationale as the Nehalem variant.
+
+ac_add_options --target=x86_64-apple-darwin
+ac_add_options --with-macos-sdk=/Applications/Xcode-9.4.1.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX10.13.sdk
+ac_add_options --enable-macos-target=10.13
+
+ac_add_options --disable-updater
+
+export MACOSX_DEPLOYMENT_TARGET=10.13
+
+export LDFLAGS="-L$HOME/.mozbuild/clang/lib -Wl,-rpath,$HOME/.mozbuild/clang/lib -Wl,-undefined,dynamic_lookup"
+export HOST_LDFLAGS="-L$HOME/.mozbuild/clang/lib -Wl,-rpath,$HOME/.mozbuild/clang/lib -Wl,-undefined,dynamic_lookup"
+
+mk_add_options MOZ_OBJDIR=@TOPSRCDIR@/../../obj-highsierra-penryn
+
+ac_add_options --enable-lto=thin
+
+# No -march= override. Clang targets penryn by default, which is the correct
+# floor for every officially-supported 10.13 Mac.

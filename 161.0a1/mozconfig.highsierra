@@ -1,0 +1,65 @@
+# Mozconfig for the Firefox-Legacy High Sierra port.
+#
+# Targets macOS 10.13 (High Sierra) using the 10.13 SDK from Xcode 9.4.1.
+# Used in conjunction with the Firefox source patches tracked in
+# Firefox-Legacy/PORT_PLAN.md and DEVLOG.md.
+
+ac_add_options --target=x86_64-apple-darwin
+ac_add_options --with-macos-sdk=/Applications/Xcode-9.4.1.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX10.13.sdk
+ac_add_options --enable-macos-target=10.13
+
+# Remove Mozilla's auto-updater. The port diverges from upstream and must
+# never let AUS replace its binary. See PORT_PLAN "Planned follow-up work" #1.
+ac_add_options --disable-updater
+
+export MACOSX_DEPLOYMENT_TARGET=10.13
+
+# Force the linker to resolve libc++ against our bundled libc++ 19
+# before falling back to the SDK's libc++.1.tbd stub, which lists only
+# pre-10.14 symbols (missing __libcpp_verbose_abort, inline vtables for
+# basic_stringbuf/basic_stringstream, etc.). Our libc++ 19 dylib has
+# install_name @rpath/libc++.1.dylib, so runtime loading will go through
+# -rpath (bundled with the .app at the M4 packaging step).
+export LDFLAGS="-L$HOME/.mozbuild/clang/lib -Wl,-rpath,$HOME/.mozbuild/clang/lib -Wl,-undefined,dynamic_lookup"
+export HOST_LDFLAGS="-L$HOME/.mozbuild/clang/lib -Wl,-rpath,$HOME/.mozbuild/clang/lib -Wl,-undefined,dynamic_lookup"
+
+# libc++ 19.1.7 is built locally at toolchain-build/install/ and symlinked into
+# Mozilla's bundled clang install (~/.mozbuild/clang/include/c++/v1
+# and ~/.mozbuild/clang/lib/libc++*.dylib). This means clang finds
+# the modern libc++ via its default search paths, so no CFLAGS/CXXFLAGS/BINDGEN
+# plumbing is required. See Firefox-Legacy/DEVLOG.md.
+# Reason this is necessary: Xcode 9.4.1's 10.13 SDK ships only the legacy
+# C++ 4.2.1 headers, and Mozilla's clang does not bundle libc++ of its own.
+# Firefox 161 uses C++20 features (std::in_range, std::bit_width, std::bit_ceil,
+# std::has_single_bit) that require libc++ 14+.
+
+mk_add_options MOZ_OBJDIR=@TOPSRCDIR@/../../obj-highsierra
+
+# Enable Link-Time Optimization for both C/C++ (clang ThinLTO) and Rust
+# (rustc LTO). Cross-language LTO lets the linker inline across translation
+# units and across the C++/Rust boundary. Expected impact: 5-10% broadly on
+# JS throughput and page load, smaller binary size. Cost: link stage ~2-3x
+# longer; individual compile times unchanged.
+ac_add_options --enable-lto=thin
+# Note: --enable-lto=cross failed because Mozilla's bundled clang (LLVM 22.1.8)
+# and rustc 1.99.1 (LLVM 23.1.1) produce incompatible bitcode. ThinLTO
+# (C/C++ only) sidesteps this. Rust crates get standard release optimization
+# but no cross-TU inlining with the C++ side.
+
+# PGO phase 3: optimized build consuming merged.profdata from phase 2.
+# obj-highsierra/merged.profdata is 122 .profraw files from a profileserver.py
+# run against the phase-1 instrumented binary, merged with llvm-profdata.
+# Bare --enable-profile-use matches the bare --enable-profile-generate used
+# in phase 1 — Rust is skipped on both sides because clang (LLVM 22.1.8) and
+# rustc (LLVM 23.1.1) produce incompatible PGO ABIs.
+ac_add_options --enable-profile-use
+ac_add_options --with-pgo-profile-path=@TOPSRCDIR@/obj-highsierra/merged.profdata
+
+# Target the actual CPU in this Mac Pro 5.1 (Intel Westmere Xeon 5600 series)
+# instead of clang's default `penryn` (2008 Core 2). Westmere adds AES-NI,
+# PCLMULQDQ, SSE4.2, and POPCNT over Penryn — large wins for crypto, string
+# parsing, and bit manipulation. Still well below AVX, which Westmere lacks.
+# Applied to both C/C++ and Rust codegen.
+export CFLAGS="$CFLAGS -march=westmere"
+export CXXFLAGS="$CXXFLAGS -march=westmere"
+export RUSTFLAGS="$RUSTFLAGS -C target-cpu=westmere"

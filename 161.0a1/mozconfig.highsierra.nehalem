@@ -1,0 +1,40 @@
+# Mozconfig for the Firefox-Legacy High Sierra port — Nehalem compatibility build.
+#
+# Lowers the CPU floor from Westmere (SSE4.2 + AES-NI + PCLMULQDQ) to Nehalem
+# (SSE4.2 only), extending compatibility to Mac Pro 4,1 and the Nehalem Core
+# i5/i7 iMacs (late-2009 and mid-2010 i5/i7 variants) that lack AES-NI.
+#
+# PGO is intentionally omitted here. The merged.profdata collected for the
+# Westmere build was produced from an instrumented binary whose IR shape was
+# influenced by Westmere codegen decisions; consuming it for a Nehalem-targeted
+# compile would produce many hash mismatches and degraded profile benefit.
+# This variant ships with ThinLTO only; running the three-phase PGO workflow
+# against this variant is a separate exercise and would need its own merged.profdata
+# written into a Nehalem-specific objdir path.
+#
+# All other patches, SDK, libc++, and build flags match the Westmere mozconfig.
+
+ac_add_options --target=x86_64-apple-darwin
+ac_add_options --with-macos-sdk=/Applications/Xcode-9.4.1.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX10.13.sdk
+ac_add_options --enable-macos-target=10.13
+
+ac_add_options --disable-updater
+
+export MACOSX_DEPLOYMENT_TARGET=10.13
+
+# Force the linker to resolve libc++ against our bundled libc++ 19.
+# See mozconfig.highsierra and DEVLOG.md for the full rationale.
+export LDFLAGS="-L$HOME/.mozbuild/clang/lib -Wl,-rpath,$HOME/.mozbuild/clang/lib -Wl,-undefined,dynamic_lookup"
+export HOST_LDFLAGS="-L$HOME/.mozbuild/clang/lib -Wl,-rpath,$HOME/.mozbuild/clang/lib -Wl,-undefined,dynamic_lookup"
+
+mk_add_options MOZ_OBJDIR=@TOPSRCDIR@/../../obj-highsierra-nehalem
+
+ac_add_options --enable-lto=thin
+
+# Target Nehalem: SSE4.2, POPCNT, but no AES-NI, no PCLMULQDQ.
+# Covers Mac Pro 4,1, iMac late-2009/mid-2010 Core i5/i7 (Lynnfield),
+# and everything that passes the Westmere baseline (since Nehalem is a
+# strict subset of what later architectures provide).
+export CFLAGS="$CFLAGS -march=nehalem"
+export CXXFLAGS="$CXXFLAGS -march=nehalem"
+export RUSTFLAGS="$RUSTFLAGS -C target-cpu=nehalem"
