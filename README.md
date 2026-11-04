@@ -2,7 +2,7 @@
 
 A modern web browser for Intel Macs that stock Firefox no longer supports.
 
-Sierra Fox Beta is an unofficial port of [Firefox](https://www.mozilla.org/firefox/) rebuilt from upstream Mozilla source to run on **macOS 10.13 High Sierra**, targeting the Mac Pro 5,1 and other 2010–2012 era Intel Macs. It gives older hardware access to a current browser engine — up-to-date JavaScript, modern CSS, current TLS and codec support — on machines Mozilla stopped supporting years ago.
+Sierra Fox Beta is an unofficial port of [Firefox](https://www.mozilla.org/firefox/) rebuilt from upstream Mozilla source to run on **macOS 10.13 High Sierra**, targeting the Mac Pro 5,1 and other 2010–2012 era Intel Macs. It gives older hardware access to a current browser engine, with up-to-date JavaScript, modern CSS, current TLS and codec support, on machines Mozilla stopped supporting years ago.
 
 This is a community port. Mozilla is not affiliated with or responsible for this project.
 
