@@ -24,9 +24,9 @@ Pick the build that matches your Mac's CPU. Picking the wrong one will cause the
 
 ### Installation
 
-1. Download the `.dmg` for your CPU tier from the Releases page.
-2. Open the `.dmg` and drag **Sierra Fox Beta** into `/Applications`.
-3. Right-click → **Open** the first time (macOS will warn about an unidentified developer; this is expected for a community build).
+1. Download the `.zip` for your CPU tier from the Releases page.
+2. Extract the `.zip` and drag **Sierra Fox Beta** into `/Applications`.
+3. Right-click → **Open**, on the first launch (macOS will warn about an unidentified developer; this is expected for a community build).
 
 ### System requirements
 
