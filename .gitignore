@@ -69,3 +69,6 @@ scratch/
 # ---------------------------------------------------------------
 dist/
 161.0a1/libgkrust.a.lto.o/
+
+# Local-only overrides, never committed
+CLAUDE.local.md
