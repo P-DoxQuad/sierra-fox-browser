@@ -68,3 +68,4 @@ scratch/
 # Release artifacts (uploaded to GitHub Releases, not versioned in the repo)
 # ---------------------------------------------------------------
 dist/
+161.0a1/libgkrust.a.lto.o/
