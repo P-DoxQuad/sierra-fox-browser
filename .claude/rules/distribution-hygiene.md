@@ -22,25 +22,44 @@ Every distributed binary must be free of build-host paths. Six leak sources, eac
 
 `HOST_LDFLAGS` may keep absolute `-rpath,$HOME/.mozbuild/clang/lib`. Host tools (clang-plugin, bindgen) never ship.
 
+## libc++ copy is a PGO workflow prerequisite, not just a packaging step
+
+The instrumented binary built during PGO phase 1 has `LC_RPATH=@executable_path` like every build in this port, so dyld resolves `@rpath/libc++.1.dylib` next to firefox at `Contents/MacOS/`. The libc++ triplet does not exist there in the dev-stage tree — the copy is a step in the hygiene workflow. If you skip it before running `profileserver.py` in phase 2, dyld falls back to the system `/usr/lib/libc++.1.dylib` (10.13's libc++ 1.x), which lacks C++20 symbols like `__ZTTNSt3__114basic_ofstreamIcNS_11char_traitsIcEEEE` and aborts in `libmozglue` during process init before any `.profraw` lands.
+
+Copy the triplet into the instrumented `.app` before phase 2:
+
+```bash
+APP="../../obj-highsierra*/dist/Sierra Fox Beta.app"
+cp -L ~/.mozbuild/clang/lib/libc++.1.dylib    "$APP/Contents/MacOS/"
+cp -L ~/.mozbuild/clang/lib/libc++abi.1.dylib "$APP/Contents/MacOS/"
+cp -L ~/.mozbuild/clang/lib/libunwind.1.dylib "$APP/Contents/MacOS/"
+```
+
+Note that phase 3's `./mach build` install step wipes these files from the dev-stage `.app`. They have to be re-copied into the FINAL packaged `.app` under `dist/firefox/` as part of the packaging workflow below.
+
 ## Packaging
 
-Use `./mach package`. Never zip `obj-highsierra/dist/Sierra Fox Beta.app` directly — that is the dev-stage tree populated via `make install --symlink`, so every resource symlinks back into the source tree and objdir on the build host.
+Use `./mach package`. Never zip `obj-highsierra*/dist/Sierra Fox Beta.app` directly — that is the dev-stage tree populated via `make install --symlink`, so every resource symlinks back into the source tree and objdir on the build host.
 
-`./mach package` dereferences everything, filters via `browser/installer/package-manifest.in`, packs resources into `omni.ja`, and writes a clean `.app` to `obj-highsierra/dist/firefox/Sierra Fox Beta.app`. That is the tree that gets zipped.
+`./mach package` dereferences everything, filters via `browser/installer/package-manifest.in`, packs resources into `omni.ja`, and writes a clean `.app` to `obj-highsierra*/dist/firefox/Sierra Fox Beta.app`. That is the tree that gets zipped. The three CPU-tier builds use different mozconfigs and objdirs; swap `highsierra` for `highsierra.nehalem` or `highsierra.penryn` (and `obj-highsierra` for `obj-highsierra-nehalem` / `obj-highsierra-penryn`) for the other tiers.
 
 ```bash
 cd 161.0a1
-export MOZCONFIG="$PWD/mozconfig.highsierra"
-./mach package                                    # ~2 min, no compilation
+export MOZCONFIG="$PWD/mozconfig.highsierra"              # or .nehalem / .penryn
+./mach package                                            # ~2 min, no compilation
 
-APP="../../obj-highsierra/dist/firefox/Sierra Fox Beta.app"
+APP="../../obj-highsierra/dist/firefox/Sierra Fox Beta.app"   # or obj-highsierra-nehalem / obj-highsierra-penryn
 cp -L ~/.mozbuild/clang/lib/libc++.1.dylib    "$APP/Contents/MacOS/"
 cp -L ~/.mozbuild/clang/lib/libc++abi.1.dylib "$APP/Contents/MacOS/"
 cp -L ~/.mozbuild/clang/lib/libunwind.1.dylib "$APP/Contents/MacOS/"
 # Post-package scrubs: binary-patch libc++ dylibs + sed inside the two omni.ja files.
 
+# Zip to the tier's release filename:
+#   Sierra-Fox-Beta-Westmere-SandyBridge+.zip
+#   Sierra-Fox-Beta-Nehalem-Core-i-Series-2009.zip
+#   Sierra-Fox-Beta-Penryn-Core2Duo.zip
 ditto -c -k --sequesterRsrc --keepParent "$APP" \
-  ../../sierra-fox-browser/dist/Sierra-Fox-Beta-Westmere-SandyBridge+.zip
+  ../../sierra-fox-browser/dist/<tier-zip-name>.zip
 ```
 
 ## Release-time checklist

@@ -4,13 +4,12 @@
 # (SSE4.2 only), extending compatibility to Mac Pro 4,1 and the Nehalem Core
 # i5/i7 iMacs (late-2009 and mid-2010 i5/i7 variants) that lack AES-NI.
 #
-# PGO is intentionally omitted here. The merged.profdata collected for the
-# Westmere build was produced from an instrumented binary whose IR shape was
-# influenced by Westmere codegen decisions; consuming it for a Nehalem-targeted
-# compile would produce many hash mismatches and degraded profile benefit.
-# This variant ships with ThinLTO only; running the three-phase PGO workflow
-# against this variant is a separate exercise and would need its own merged.profdata
-# written into a Nehalem-specific objdir path.
+# PGO uses a Nehalem-specific merged.profdata produced by running the full
+# three-phase workflow against this variant (instrumented build →
+# profileserver.py → llvm-profdata merge → optimised rebuild consuming
+# obj-highsierra-nehalem/merged.profdata). The Westmere merged.profdata
+# cannot be reused here — different -march produces different IR hashes and
+# consuming the mismatched profile would collapse to default heuristics.
 #
 # All other patches, SDK, libc++, and build flags match the Westmere mozconfig.
 
@@ -32,10 +31,25 @@ mk_add_options MOZ_OBJDIR=@TOPSRCDIR@/../../obj-highsierra-nehalem
 
 ac_add_options --enable-lto=thin
 
+# PGO phase 3: optimised build consuming merged.profdata from phase 2.
+# obj-highsierra-nehalem/merged.profdata comes from running an instrumented
+# build under profileserver.py and merging the resulting .profraw files with
+# llvm-profdata. Bare --enable-profile-use (no =cross) matches the bare
+# --enable-profile-generate used in phase 1 — Rust is skipped on both
+# sides because clang (LLVM 22.1.8) and rustc (LLVM 23.1.1) produce
+# incompatible PGO ABIs.
+ac_add_options --enable-profile-use
+ac_add_options --with-pgo-profile-path=@TOPSRCDIR@/../../obj-highsierra-nehalem/merged.profdata
+
 # Target Nehalem: SSE4.2, POPCNT, but no AES-NI, no PCLMULQDQ.
 # Covers Mac Pro 4,1, iMac late-2009/mid-2010 Core i5/i7 (Lynnfield),
 # and everything that passes the Westmere baseline (since Nehalem is a
 # strict subset of what later architectures provide).
-export CFLAGS="$CFLAGS -march=nehalem -ffile-prefix-map=$PWD=/sierra-fox-build -ffile-prefix-map=$HOME=/home"
-export CXXFLAGS="$CXXFLAGS -march=nehalem -ffile-prefix-map=$PWD=/sierra-fox-build -ffile-prefix-map=$HOME=/home"
-export RUSTFLAGS="$RUSTFLAGS -C target-cpu=nehalem --remap-path-prefix=$PWD=/sierra-fox-build --remap-path-prefix=$HOME=/home"
+#
+# Also remap build-host paths to opaque placeholders so no "/Users/<name>" or
+# "/Volumes/<disk>" leaks into shipped binaries. Rust's panic!()/file!() and
+# C++ debug info otherwise embed absolute source paths as literal strings.
+PROJ_ROOT="$(cd "$PWD/../.." && pwd)"
+export CFLAGS="$CFLAGS -march=nehalem -ffile-prefix-map=$PROJ_ROOT=/sierra-fox -ffile-prefix-map=$PWD=/sierra-fox-build -ffile-prefix-map=$HOME=/home"
+export CXXFLAGS="$CXXFLAGS -march=nehalem -ffile-prefix-map=$PROJ_ROOT=/sierra-fox -ffile-prefix-map=$PWD=/sierra-fox-build -ffile-prefix-map=$HOME=/home"
+export RUSTFLAGS="$RUSTFLAGS -C target-cpu=nehalem --remap-path-prefix=$PROJ_ROOT=/sierra-fox --remap-path-prefix=$PWD=/sierra-fox-build --remap-path-prefix=$HOME=/home"

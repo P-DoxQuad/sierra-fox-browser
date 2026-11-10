@@ -175,21 +175,17 @@ Currently mitigated by leaving the AI features disabled in `about:config` so `li
 
 Deferred until the updater work is complete so the AI investigation does not interleave with potentially-destabilising front-end changes to the Help menu and preferences UI.
 
-### 3. Decide whether to publish tiered CPU-target builds as releases
+### 3. Publish the Penryn compatibility build
 
-Three mozconfigs now exist in the tree covering Westmere, Nehalem, and Penryn CPU floors (`mozconfig.highsierra`, `mozconfig.highsierra.nehalem`, `mozconfig.highsierra.penryn`). Each produces its own `.app` in its own objdir and is built independently; see the 2026-11-02 "Compatibility-tier mozconfigs added" entry in DEVLOG for the invocation details and ISA coverage of each.
+Westmere and Nehalem builds are now both shipped with full PGO + ThinLTO + CPU-tier targeting + all distribution-hygiene controls (see the 2026-11-09 "First public release packaging fix" and 2026-11-10 "Nehalem compatibility build shipped with full PGO" DEVLOG entries). Penryn remains outstanding.
 
-The open question is release policy: ship one build (Westmere, as today), two (Westmere + Penryn covering the extremes), or all three. Arguments for publishing more than one:
+Scope of the remaining work:
 
-- The port's identity is "runs on old Mac hardware"; capping support at Mac Pro 5,1 and 2011+ laptops leaves a meaningful population of 10.13-capable Macs on the table.
-- Each additional build is a tagged `.app` and nothing more — the user is the dispatcher; no runtime detection code or shared build infrastructure is required.
+- Apply the same mozconfig parity pass to `mozconfig.highsierra.penryn` that the Nehalem one received: confirm the `-ffile-prefix-map=$PROJ_ROOT=/sierra-fox` triple is present, ensure `--enable-profile-use` + `--with-pgo-profile-path=@TOPSRCDIR@/../../obj-highsierra-penryn/merged.profdata` is wired in (replacing any stale "PGO omitted" comment), and leave `-march` unset so clang falls back to its default `penryn` target.
+- Run the three-phase PGO workflow against `obj-highsierra-penryn/`: instrumented build (~90 min, including the SIMPLE_PROGRAMS stub fix), profileserver + llvm-profdata merge (~15–30 min), optimized rebuild (~90 min), packaging + scrubs + zip to `Sierra-Fox-Beta-Penryn-Core2Duo.zip` (~10 min). Total ~3.5–4 hours.
+- Verify the Penryn binary launches on actual Penryn hardware (or a 10.13 VM configured to a Penryn feature set); Westmere has been verified on real hardware via VM, Nehalem relies on strict-subset-of-Westmere reasoning plus the shared build pipeline, but Penryn drops further to SSE4.1 and lacks the POPCNT instruction, which clang will not emit at `-march=penryn` — a correctness check for that is worth doing before public release.
 
-Arguments against:
-
-- Each additional variant adds 60-90 minutes of build time per release and a corresponding checklist item.
-- The compatibility variants ship without PGO (see mozconfig comments and DEVLOG for the rationale), so their performance is noticeably below the Westmere build's; users on compatible hardware who grab the Penryn build "by mistake" would be running a slower binary than necessary.
-
-Decision deferred until a GitHub repository exists and a first public release is scheduled. At that point, publishing at minimum the Westmere build and labelling it unambiguously ("Westmere+; see Nehalem build for Mac Pro 4,1 and earlier Core i-series iMacs") is the floor; the other two variants can be added if demand materialises.
+Once shipped, the three-tier matrix covers every officially-supported 10.13 Mac: the Westmere+ build catches Mac Pro 5,1 plus all 2011+ Macs, the Nehalem build catches Mac Pro 4,1 and the 2009 Core i5/i7 iMacs, and the Penryn build catches the Core 2 Duo Macs (Mac Pro 3,1, late-2009 Core 2 Duo iMacs, MacBook Pro 13" 2010, MacBook Air 2010, Mac mini 2010).
 
 ## Related projects
 

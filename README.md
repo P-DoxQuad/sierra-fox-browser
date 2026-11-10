@@ -17,7 +17,7 @@ Pick the build that matches your Mac's CPU. Picking the wrong one will cause the
 | Download | Supported CPU | Covered Macs |
 |---|---|---|
 | **`Sierra-Fox-Beta-Westmere-SandyBridge+.zip`** | SSE4.2 + AES-NI + PCLMULQDQ | Mac Pro 5,1 (2010 / 2012), MacBook Pro 15"/17" mid-2010, every Mac from 2011 onwards (Sandy Bridge and later) |
-| **`Sierra-Fox-Beta-Nehalem-Core-i-Series-2009.zip`** *(coming)* | SSE4.2, no AES-NI | Adds Mac Pro 4,1 (2009), iMac late-2009 / mid-2010 Core i5/i7 |
+| **`Sierra-Fox-Beta-Nehalem-Core-i-Series-2009.zip`** | SSE4.2, no AES-NI | Adds Mac Pro 4,1 (2009), iMac late-2009 / mid-2010 Core i5/i7 |
 | **`Sierra-Fox-Beta-Penryn-Core2Duo.zip`** *(coming)* | SSE4.1 (clang default) | Adds Mac mini 2010, MacBook Air 2010, MacBook Pro 13" 2010, iMac late-2009 Core 2 Duo, Mac Pro 3,1 |
 
 **Not sure which build you need?** If your Mac is a Mac Pro 5,1 or anything from 2011 or later, use the Westmere build. If you're on 2009–2010 hardware with a Core i5/i7, use Nehalem. If you're on 2010-or-earlier hardware with a Core 2 Duo, use Penryn.

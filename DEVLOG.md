@@ -1120,3 +1120,63 @@ VM verification: the resulting bundle launches and runs on a clean macOS 10.13 i
 
 - The distribution hygiene table now enumerates all five leak sources (LC_RPATH, C/C++ debug + `__FILE__`, Rust `file!()`/`line!()`, bundled toolchain libraries, and `omni.ja` generated content) rather than only the first four.
 - The release-time checklist now packages the proper bundle with `./mach package` rather than zipping the dev-stage tree, and explicitly greps inside the generated `omni.ja` archives, not only against the loose files in `Contents/`.
+
+## 2026-11-10 — Nehalem compatibility build shipped with full PGO
+
+Produced the second CPU-tier release artifact, `Sierra-Fox-Beta-Nehalem-Core-i-Series-2009.zip`, bringing Mac Pro 4,1 and the late-2009 / mid-2010 i5/i7 iMacs (Lynnfield-variant Nehalem) into the supported set. Final zip is 123 MB, matching the Westmere release's size within rounding, and was produced with the same PGO + ThinLTO + `-march=` + distribution-hygiene pipeline as Westmere — no shortcut, no PGO omission.
+
+### Mozconfig parity brought to Westmere level
+
+The `mozconfig.highsierra.nehalem` file previously targeted ThinLTO only, with a top-of-file comment deferring the three-phase PGO workflow as "a separate exercise." Two gaps were closed before the build started:
+
+- The `-ffile-prefix-map=$PROJ_ROOT=/sierra-fox` triple, which strips the parent directory (`/Volumes/Data-RAID/Users/mdzura/Documents/Projects/Sandbox/Firefox-Legacy`) from DWARF debug info, was missing from the Nehalem mozconfig — only `$PWD` and `$HOME` prefix maps were in place. Without the `$PROJ_ROOT` map, Rust's `file!()`/`line!()` strings and clang's DWARF for anything under the parent directory but above `$PWD` (notably Firefox source files accessed via upstream compiler resolution) would have leaked. Added to `CFLAGS`, `CXXFLAGS`, and `RUSTFLAGS` so hygiene matches Westmere.
+- `--enable-profile-use` plus `--with-pgo-profile-path=@TOPSRCDIR@/../../obj-highsierra-nehalem/merged.profdata` was added so the final optimized build consumes a Nehalem-specific profile rather than shipping a ThinLTO-only release. The stale "PGO intentionally omitted" comment block was replaced with the matching phase-3 wording from the Westmere mozconfig.
+
+With those two changes the Nehalem mozconfig diverges from the Westmere one only in the two places it should: `-march=nehalem` instead of `-march=westmere`, and `MOZ_OBJDIR=@TOPSRCDIR@/../../obj-highsierra-nehalem` instead of `obj-highsierra`.
+
+### Three-phase PGO workflow mechanics
+
+Phase 1, the instrumented build, ran under `--enable-profile-generate` (bare — no `=cross`, so Rust stays out of PGO because the clang 22.1.8 and rustc 1.99.1 LLVM versions still produce incompatible bitcode). ThinLTO was auto-disabled by the build system when `--enable-profile-generate` is defined; it comes back in phase 3. Build time was ~100 minutes, broadly matching the Westmere phase 1. Output: an instrumented `.app` at `obj-highsierra-nehalem/dist/Sierra Fox Beta.app` with a 397 MB XUL, which is ~35% larger than a non-instrumented Westmere XUL because of the inlined counter-increment code the instrumentation inserts into every basic block.
+
+The `SIMPLE_PROGRAMS :=` wipe that `config/rules.mk` performs when `MOZ_PROFILE_GENERATE` is defined broke the misc.track step at ~101 minutes with the same "No rule to make target `WriteArgument`" error we hit during the Westmere PGO cycle. Resolution was the same fix: touch seven zero-byte stub files at the paths where the SIMPLE_PROGRAMS output is expected (`uriloader/exthandler/tests/WriteArgument`, `xpcom/tests/TestArguments`, `xpcom/tests/TestBlockingProcess`, `xpcom/tests/TestPRIntN`, `xpcom/tests/TestQuickReturn`, `xpcom/tests/TestUnicodeArguments`, `tools/power/rapl`, all under `obj-highsierra-nehalem/`). After stubbing, `./mach build` resumed and finished the remaining misc.track → staging work in 62 seconds.
+
+Phase 2 ran `./mach python build/pgo/profileserver.py --binary=<instrumented .app>/Contents/MacOS/firefox`. The first attempt failed in ~3 seconds with `dyld: Symbol not found: __ZTTNSt3__114basic_ofstreamIcNS_11char_traitsIcEEEE  Referenced from: libmozglue.dylib  Expected in: /usr/lib/libc++.1.dylib`. The instrumented binary's `LC_RPATH` is `@executable_path` as designed, so `@rpath/libc++.1.dylib` resolves to `Contents/MacOS/libc++.1.dylib`, but that file does not exist in the dev-stage tree — the libc++ triplet copy is a distribution-time step from the hygiene table and had never been applied to the instrumented bundle. dyld's fallback resolved to the system `/usr/lib/libc++.1.dylib` from 10.13, which lacks C++20 symbols like `basic_ofstream` vtable and aborts in `libmozglue` during process init. Fix: copy the libc++ triplet into `obj-highsierra-nehalem/dist/Sierra Fox Beta.app/Contents/MacOS/` before rerunning profileserver. **This is a general lesson for the PGO workflow and has been added to the `.claude/rules/distribution-hygiene.md` prerequisites: the libc++ copy is now a phase-2 prerequisite, not just a packaging step.**
+
+The successful profileserver run completed in ~12 minutes. 122 `.profraw` files landed in `161.0a1/` (process-cwd quirk inherited from upstream profileserver.py running under `./mach python`), merged with `~/.mozbuild/clang/bin/llvm-profdata merge` into an 85 MB `obj-highsierra-nehalem/merged.profdata`. `llvm-profdata show` confirmed the merge as a healthy IR-level profile recording 372,411 instrumented functions, 2.46M basic blocks, and 59.4 billion total executions. The raw files were deleted post-merge.
+
+Phase 3 rebuilt with `--enable-profile-use` consuming the merged profile. Total time 1h 36m, no errors. The log reported a dozen or so "function control flow change detected (hash mismatch) ... up to N count discarded" warnings for individual functions in unified translation units like `Unified_mm_gfx_thebes0.mm`. These come from Mozilla's unified-build file-grouping being non-deterministic across runs, which shifts the IR hash of a handful of functions and makes the backend's PGO loader unable to correlate them against the profile. The discarded counts per function ranged 10 to 40,503 against a profile total of 59.4 billion — well under 0.001% of total execution, so the overall PGO benefit remains essentially intact. This is the same noise Mozilla's own CI PGO builds produce on every run. The phase-3 optimized XUL is 239 MB, roughly 40% smaller than the phase-1 instrumented 397 MB because the counter-increment code is gone and PGO-driven dead-code elimination removes unlikely paths.
+
+### Phase 4 packaging reused the Westmere recipe exactly
+
+`./mach package` produced a clean distributable `.app` under `obj-highsierra-nehalem/dist/firefox/` in 1 minute 45 seconds with 82 files, zero symlinks, resources packed into `omni.ja`. The libc++ triplet was re-copied into `Contents/MacOS/` (the phase-3 install step wiped the ones we had placed for phase 2). The same binary-patch pass applied to `libc++.1.dylib`, `libc++abi.1.dylib`, and `libunwind.1.dylib` using equal-length replacements for the toolchain-build path scrubbed the `__TEXT,__const` assertion strings. The same `perl -pi -e` pass against `chrome/toolkit/content/global/buildconfig.html` and `modules/RFPTargetConstants.sys.mjs` inside `Resources/omni.ja`, followed by `zip -u` back into the archive, removed the configure-string leaks. `Resources/browser/omni.ja` had no personal-path leaks, same as Westmere.
+
+Final verification:
+
+- Zero symlinks in the bundle.
+- Zero occurrences of `mdzura` or `Data-RAID` anywhere across binaries, dylibs, or either `omni.ja`.
+- `LC_RPATH` in XUL is `@executable_path` and `@executable_path/../Frameworks/ChannelPrefs.framework` only.
+- `libc++.1.dylib`, `libc++abi.1.dylib`, `libunwind.1.dylib` present in `Contents/MacOS/`, install_names all `@rpath/...`.
+- `./Contents/MacOS/firefox --version` reports `Mozilla Firefox 161.0b1` and exits cleanly.
+
+`ditto -c -k --sequesterRsrc --keepParent` produced `sierra-fox-browser/dist/Sierra-Fox-Beta-Nehalem-Core-i-Series-2009.zip` at 123 MB — same size as the Westmere release within rounding.
+
+### Broader-regex false positives
+
+The release-time checklist includes a broader `grep -E '/Users/|/Volumes/|/home/'` sweep that caught 2 hits in XUL and 20 total hits across the two `omni.ja` files on the first pass. On inspection every one was a false positive and the correct hygiene rule (`/home/<name>` with a specific username, not bare `/home/`) was clean:
+
+- `/Users/` and `/Volumes/` as bare string constants in XUL — path-prefix literals used for sandbox allowlist checks, not personal paths.
+- `/Users/nalexander/...`, `/Users/moz/...`, `/Users/foo/...` — upstream Mozilla engineer paths baked into documentation examples in source comments, unchanged from `mozilla-central`.
+- `/home/username/...`, `/home/user/...`, `/home/me/...`, `/home/web_user` — documentation placeholders and emscripten runtime stubs.
+- `/home/eitan/Projects/emsdk_portable/...` — baked into wasm module paths from upstream emscripten toolchain; nothing we built.
+- `/home/.rustup/toolchains/stable-x86_64-apple-darwin/bin/rustc` — this IS ours but correctly scrubbed: the `-ffile-prefix-map=$HOME=/home` turned `/Users/mdzura/.rustup/.../rustc` into `/home/.rustup/.../rustc` as the mozconfig intends.
+- `/System/Volumes/Preboot/Cryptexes/OS/System/Library/dyld/dyld_shared_cache_*` — macOS system paths referenced by dyld shim code.
+
+All identical to what's in the Westmere zip. Lesson: the broad `/home/` regex is a quick first-pass filter only; when it produces hits, examine each for actual user identifiers (`mdzura`, `Data-RAID`) before flagging as a hygiene failure.
+
+### CPU-tier release coverage so far
+
+| Tier | Zip | Status |
+|---|---|---|
+| Westmere | `Sierra-Fox-Beta-Westmere-SandyBridge+.zip` | shipped, GitHub v2026.11.0-beta |
+| Nehalem | `Sierra-Fox-Beta-Nehalem-Core-i-Series-2009.zip` | built, ready to upload |
+| Penryn | `Sierra-Fox-Beta-Penryn-Core2Duo.zip` | pending; requires its own three-phase PGO workflow against `obj-highsierra-penryn/` |
