@@ -1,5 +1,17 @@
 # Firefox-Legacy: Port of Firefox 161.0a1 to macOS 10.13 High Sierra
 
+## Release build requirements (mandatory)
+
+Every release build of Sierra Fox Beta — any `.zip`/`.dmg` that will be published to the GitHub Releases page — must include every established performance optimization. Specifically:
+
+1. **ThinLTO** (`ac_add_options --enable-lto=thin`).
+2. **PGO**, consumed from a `merged.profdata` collected against an instrumented build of the same release. The full three-phase workflow (instrumented build → `./mach python build/pgo/profileserver.py --binary=<instrumented .app>/Contents/MacOS/firefox` → `llvm-profdata merge -o merged.profdata *.profraw`) is prerequisite to every release; the final release build consumes the merged profile via `--enable-profile-use` + `--with-pgo-profile-path`.
+3. **CPU-tier targeting** (`-march=westmere` / `-march=nehalem` / default `penryn`) applied to `CFLAGS`, `CXXFLAGS`, and `RUSTFLAGS`.
+4. **Updater disabled** (`ac_add_options --disable-updater`) and all branding patches applied.
+5. **All distribution-hygiene flags present**: `-Wl,-rpath,@executable_path`, `-ffile-prefix-map`, `--remap-path-prefix`. See CLAUDE.md § Distribution hygiene for the full catalogue.
+
+Dropping any of these from a release build for convenience or time pressure is not permitted. If `merged.profdata` is missing (local-state loss, `./mach clobber` ran, disk failure), the correct response is to re-run the PGO workflow — never to publish a release without it. Expected release-build time end-to-end is ~3.5-4 hours (phase 1 build ~90 min, profileserver run ~15-30 min, phase 3 build ~90 min, packaging ~10 min). Plan around that duration; do not try to shortcut it.
+
 ## Scope
 
 This document describes a port of Firefox 161.0a1 Nightly to macOS 10.13 (High Sierra), the earliest release of macOS to ship Metal 2.

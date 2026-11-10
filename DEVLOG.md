@@ -1080,3 +1080,43 @@ Build system:
 - `161.0a1/mozconfig.highsierra.penryn` — new file.
 
 Source: no changes.
+
+## 2026-11-09 — First public release packaging fix
+
+The first attempt at producing a distributable `.zip` for GitHub Releases shipped a fundamentally broken bundle: every non-binary file inside `Sierra Fox Beta.app` — thousands of `.sys.mjs` resources, framework `Info.plist` files, `application.ini`, actor modules, test helpers — was a symbolic link pointing back into either the source tree (`sierra-fox-browser/161.0a1/...`) or the objdir (`obj-highsierra/dist/bin/...`) on the build host. Zipping the staged dev tree and shipping it meant the archive contained the symlink targets as literal `/Volumes/Data-RAID/Users/mdzura/...` paths. On any other machine the symlinks pointed at nothing, so the app silently exited on launch.
+
+The root cause was packaging the wrong tree. Mozilla's build system has two stages after linking:
+
+1. **Dev-stage install** — `make install` runs `install-manifest --symlink`, populating `obj/dist/firefox/` (and `obj/dist/Nightly.app` on macOS) with symlinks back to source and build artefacts so iterative `./mach run` cycles see fresh files without copying. This tree is explicitly not a distributable; its only purpose is to let developers launch the build without a stage step.
+2. **Package stage** — `./mach package` dereferences everything, applies `browser/installer/package-manifest.in` to filter out tests and dev-only binaries, packs JS/XUL resources into `omni.ja` archives for fast startup, and produces a clean `.app` under `obj-highsierra/dist/firefox/` suitable for distribution.
+
+The first release zipped stage 1 instead of stage 2. The fix was to run `./mach package` against the already-built, already-PGO-optimised objdir — no compilation, purely a stage-and-archive step completing in about two minutes — and zip the properly-produced bundle from `obj-highsierra/dist/firefox/Sierra Fox Beta.app`.
+
+### Three additional path-leak sources discovered during post-package verification
+
+Running the `release-time checklist` grep from `CLAUDE.md` against the properly-packaged bundle surfaced residual `/Volumes/Data-RAID/...` and `/Users/mdzura/...` strings that `-ffile-prefix-map` and `--remap-path-prefix` had not caught. None were in the main Firefox binaries (XUL, firefox, plugin-container, mozglue, nss, and the other Mozilla-built dylibs were all clean), confirming the configured flags work for everything compiled from the Firefox source tree. The leaks were in artefacts outside that tree:
+
+**1. `libc++.1.dylib`, `libc++abi.1.dylib`, `libunwind.1.dylib`.** These are copied into `Contents/MacOS/` so the bundle is self-contained at runtime, but they are built by a separate `toolchain-build/` step (see earlier DEVLOG entries) whose configure did not pass `-ffile-prefix-map`. Source-file strings like `.../toolchain-build/llvm-project-19.1.7.src/libcxxabi/src/cxa_demangle.cpp` end up in the `__TEXT,__const` section as assertion-message strings referenced by typeinfo and demangle code — not in DWARF, so `strip -S` does not remove them. The permanent fix is to re-build the libc++ toolchain with `-ffile-prefix-map=$PWD=/libcxx-src`; the interim fix is to binary-patch the three dylibs in place with equal-length sanitising replacements, preserving the `__TEXT,__const` string pool layout and null terminators.
+
+**2. `omni.ja` — `chrome/toolkit/content/global/buildconfig.html`.** The `about:buildconfig` page is generated at package time by `toolkit/mozapps/update/common/updatecommon.cpp`'s build-config pipeline from the literal `CC`, `CXX`, `CFLAGS`, `CXXFLAGS`, and `RUSTFLAGS` strings captured during `configure`. Because the mozconfig sets things like `CFLAGS="$CFLAGS -march=westmere -ffile-prefix-map=/Volumes/Data-RAID/Users/mdzura/Documents/Projects/Sandbox/Firefox-Legacy=/sierra-fox ..."`, those literal path strings end up embedded in the HTML even though they do not appear in any compiled artefact. The fix is a post-package `perl -pi -e` substitution against the file inside the already-built `omni.ja`, then `zip -u` back into the archive.
+
+**3. `omni.ja` — `modules/RFPTargetConstants.sys.mjs`.** Generated from `toolkit/components/resistfingerprinting/RFPTargets.inc` and friends at package time. The generator writes an informational comment at the top of the module referencing the absolute paths of its input `.inc` files on the build host. Same fix as (2).
+
+### Final distribution hygiene outcome
+
+`Sierra-Fox-Beta-Westmere.zip`, 123 MB. After the packaging fix and the three post-package scrubs:
+
+- Zero symbolic links inside the bundle.
+- `strings` across every file in `Contents/` returns zero hits for `/Users/mdzura` or `/Volumes/Data-RAID`.
+- `otool -l Contents/MacOS/firefox | grep -A2 LC_RPATH` shows only `@executable_path`.
+- `libc++.1.dylib`, `libc++abi.1.dylib`, `libunwind.1.dylib` present in `Contents/MacOS/`, install_names all `@rpath/...`.
+- `./Contents/MacOS/firefox --version` reports `Mozilla Firefox 161.0b1` and exits cleanly.
+- Tests, `WriteArgument`, `BadCertAndPinningServer`, and other dev-only binaries that were present in the dev-stage tree have been excluded by `package-manifest.in`.
+- Resources packed into `omni.ja` archives rather than loose files — standard production layout; cold-start load path is the archive, not thousands of individual module reads.
+
+VM verification: the resulting bundle launches and runs on a clean macOS 10.13 install in a Parallels VM at 10.211.55.13, both via double-click from Finder and from `open -a`. In testing the Gatekeeper quarantine flag did not block launch on first attempt, but the `xattr -dr com.apple.quarantine` workaround is documented in README.md as a fallback for users whose macOS version does enforce the quarantine flag more strictly.
+
+### Lessons applied to CLAUDE.md
+
+- The distribution hygiene table now enumerates all five leak sources (LC_RPATH, C/C++ debug + `__FILE__`, Rust `file!()`/`line!()`, bundled toolchain libraries, and `omni.ja` generated content) rather than only the first four.
+- The release-time checklist now packages the proper bundle with `./mach package` rather than zipping the dev-stage tree, and explicitly greps inside the generated `omni.ja` archives, not only against the loose files in `Contents/`.

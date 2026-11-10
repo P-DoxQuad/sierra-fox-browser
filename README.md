@@ -10,23 +10,33 @@ This is a community port. Mozilla is not affiliated with or responsible for this
 
 ## Downloads
 
-Pre-built `.dmg` bundles are published on the [Releases](../../releases) page.
+Pre-built `.zip` bundles are published on the [Releases](../../releases) page.
 
 Pick the build that matches your Mac's CPU. Picking the wrong one will cause the browser to crash on launch with an illegal-instruction error.
 
 | Download | Supported CPU | Covered Macs |
 |---|---|---|
-| **Sierra Fox Beta — Westmere+** | SSE4.2 + AES-NI + PCLMULQDQ | Mac Pro 5,1 (2010 / 2012), MacBook Pro 15"/17" mid-2010, every Mac from 2011 onwards (Sandy Bridge and later) |
-| **Sierra Fox Beta — Nehalem** *(coming)* | SSE4.2, no AES-NI | Adds Mac Pro 4,1 (2009), iMac late-2009 / mid-2010 Core i5/i7 |
-| **Sierra Fox Beta — Penryn** *(coming)* | SSE4.1 (clang default) | Adds Mac mini 2010, MacBook Air 2010, MacBook Pro 13" 2010, iMac late-2009 Core 2 Duo, Mac Pro 3,1 |
+| **`Sierra-Fox-Beta-Westmere-SandyBridge+.zip`** | SSE4.2 + AES-NI + PCLMULQDQ | Mac Pro 5,1 (2010 / 2012), MacBook Pro 15"/17" mid-2010, every Mac from 2011 onwards (Sandy Bridge and later) |
+| **`Sierra-Fox-Beta-Nehalem-Core-i-Series-2009.zip`** *(coming)* | SSE4.2, no AES-NI | Adds Mac Pro 4,1 (2009), iMac late-2009 / mid-2010 Core i5/i7 |
+| **`Sierra-Fox-Beta-Penryn-Core2Duo.zip`** *(coming)* | SSE4.1 (clang default) | Adds Mac mini 2010, MacBook Air 2010, MacBook Pro 13" 2010, iMac late-2009 Core 2 Duo, Mac Pro 3,1 |
 
 **Not sure which build you need?** If your Mac is a Mac Pro 5,1 or anything from 2011 or later, use the Westmere build. If you're on 2009–2010 hardware with a Core i5/i7, use Nehalem. If you're on 2010-or-earlier hardware with a Core 2 Duo, use Penryn.
 
 ### Installation
 
-1. Download the `.dmg` for your CPU tier from the Releases page.
-2. Open the `.dmg` and drag **Sierra Fox Beta** into `/Applications`.
-3. Right-click → **Open** the first time (macOS will warn about an unidentified developer; this is expected for a community build).
+1. Download the `.zip` for your CPU tier from the Releases page.
+2. Double-click the `.zip` to extract **Sierra Fox Beta.app**, then drag it into `/Applications`.
+3. Right-click **Sierra Fox Beta** → **Open** the first time. macOS will warn about an unidentified developer; this is expected for a community build. Click **Open** to confirm.
+
+#### If Gatekeeper refuses to let the app launch
+
+On some macOS versions Gatekeeper may silently block the app even after right-click → Open — the Dock icon bounces once and disappears, with no visible error. If that happens, open **Terminal** and run:
+
+```bash
+xattr -dr com.apple.quarantine "/Applications/Sierra Fox Beta.app"
+```
+
+This strips the quarantine flag macOS set when you downloaded the archive. Launch the app normally afterwards. You only need to do this once.
 
 ### System requirements
 

@@ -22,9 +22,10 @@ ac_add_options --disable-updater
 
 export MACOSX_DEPLOYMENT_TARGET=10.13
 
-# Force the linker to resolve libc++ against our bundled libc++ 19.
-# See mozconfig.highsierra and DEVLOG.md for the full rationale.
-export LDFLAGS="-L$HOME/.mozbuild/clang/lib -Wl,-rpath,$HOME/.mozbuild/clang/lib -Wl,-undefined,dynamic_lookup"
+# Link against local libc++ 19, rpath set to @executable_path so the dylib
+# is looked up next to firefox at Contents/MacOS/. See mozconfig.highsierra
+# for the full rationale and the post-build libc++ copy step.
+export LDFLAGS="-L$HOME/.mozbuild/clang/lib -Wl,-rpath,@executable_path -Wl,-undefined,dynamic_lookup"
 export HOST_LDFLAGS="-L$HOME/.mozbuild/clang/lib -Wl,-rpath,$HOME/.mozbuild/clang/lib -Wl,-undefined,dynamic_lookup"
 
 mk_add_options MOZ_OBJDIR=@TOPSRCDIR@/../../obj-highsierra-nehalem
@@ -35,6 +36,6 @@ ac_add_options --enable-lto=thin
 # Covers Mac Pro 4,1, iMac late-2009/mid-2010 Core i5/i7 (Lynnfield),
 # and everything that passes the Westmere baseline (since Nehalem is a
 # strict subset of what later architectures provide).
-export CFLAGS="$CFLAGS -march=nehalem"
-export CXXFLAGS="$CXXFLAGS -march=nehalem"
-export RUSTFLAGS="$RUSTFLAGS -C target-cpu=nehalem"
+export CFLAGS="$CFLAGS -march=nehalem -ffile-prefix-map=$PWD=/sierra-fox-build -ffile-prefix-map=$HOME=/home"
+export CXXFLAGS="$CXXFLAGS -march=nehalem -ffile-prefix-map=$PWD=/sierra-fox-build -ffile-prefix-map=$HOME=/home"
+export RUSTFLAGS="$RUSTFLAGS -C target-cpu=nehalem --remap-path-prefix=$PWD=/sierra-fox-build --remap-path-prefix=$HOME=/home"

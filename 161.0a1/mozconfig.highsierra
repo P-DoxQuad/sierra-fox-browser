@@ -14,13 +14,22 @@ ac_add_options --disable-updater
 
 export MACOSX_DEPLOYMENT_TARGET=10.13
 
-# Force the linker to resolve libc++ against our bundled libc++ 19
-# before falling back to the SDK's libc++.1.tbd stub, which lists only
-# pre-10.14 symbols (missing __libcpp_verbose_abort, inline vtables for
-# basic_stringbuf/basic_stringstream, etc.). Our libc++ 19 dylib has
-# install_name @rpath/libc++.1.dylib, so runtime loading will go through
-# -rpath (bundled with the .app at the M4 packaging step).
-export LDFLAGS="-L$HOME/.mozbuild/clang/lib -Wl,-rpath,$HOME/.mozbuild/clang/lib -Wl,-undefined,dynamic_lookup"
+# Link against our local libc++ 19 build (the SDK's libc++.1.tbd stub lists
+# only pre-10.14 symbols so it cannot satisfy C++20 symbols like
+# __libcpp_verbose_abort or the std::basic_stringbuf vtables). At link time
+# we point -L at ~/.mozbuild/clang/lib so symbols resolve.
+#
+# For RUNTIME, we deliberately do NOT bake ~/.mozbuild into rpath (that would
+# leak the build-host's home directory into every distributed binary and
+# break launch on any other Mac). Instead we set the rpath to @executable_path
+# so dyld looks for libc++.1.dylib next to the main firefox binary at
+# Contents/MacOS/. A post-build step copies libc++.1.dylib and
+# libc++abi.1.dylib from ~/.mozbuild/clang/lib into Contents/MacOS/ so the
+# bundle is standalone-runnable on any 10.13 Mac.
+#
+# HOST_LDFLAGS controls build-time host tools which never ship; it can keep
+# the absolute rpath.
+export LDFLAGS="-L$HOME/.mozbuild/clang/lib -Wl,-rpath,@executable_path -Wl,-undefined,dynamic_lookup"
 export HOST_LDFLAGS="-L$HOME/.mozbuild/clang/lib -Wl,-rpath,$HOME/.mozbuild/clang/lib -Wl,-undefined,dynamic_lookup"
 
 # libc++ 19.1.7 is built locally at toolchain-build/install/ and symlinked into
@@ -46,20 +55,26 @@ ac_add_options --enable-lto=thin
 # (C/C++ only) sidesteps this. Rust crates get standard release optimization
 # but no cross-TU inlining with the C++ side.
 
-# PGO phase 3: optimized build consuming merged.profdata from phase 2.
-# obj-highsierra/merged.profdata is 122 .profraw files from a profileserver.py
-# run against the phase-1 instrumented binary, merged with llvm-profdata.
-# Bare --enable-profile-use matches the bare --enable-profile-generate used
-# in phase 1 — Rust is skipped on both sides because clang (LLVM 22.1.8) and
-# rustc (LLVM 23.1.1) produce incompatible PGO ABIs.
+# PGO phase 3: optimised build consuming merged.profdata from phase 2.
+# obj-highsierra/merged.profdata comes from running an instrumented build
+# under profileserver.py and merging the resulting .profraw files with
+# llvm-profdata. Bare --enable-profile-use (no =cross) matches the bare
+# --enable-profile-generate used in phase 1 — Rust is skipped on both
+# sides because clang (LLVM 22.1.8) and rustc (LLVM 23.1.1) produce
+# incompatible PGO ABIs.
 ac_add_options --enable-profile-use
-ac_add_options --with-pgo-profile-path=@TOPSRCDIR@/obj-highsierra/merged.profdata
+ac_add_options --with-pgo-profile-path=@TOPSRCDIR@/../../obj-highsierra/merged.profdata
 
 # Target the actual CPU in this Mac Pro 5.1 (Intel Westmere Xeon 5600 series)
 # instead of clang's default `penryn` (2008 Core 2). Westmere adds AES-NI,
 # PCLMULQDQ, SSE4.2, and POPCNT over Penryn — large wins for crypto, string
 # parsing, and bit manipulation. Still well below AVX, which Westmere lacks.
 # Applied to both C/C++ and Rust codegen.
-export CFLAGS="$CFLAGS -march=westmere"
-export CXXFLAGS="$CXXFLAGS -march=westmere"
-export RUSTFLAGS="$RUSTFLAGS -C target-cpu=westmere"
+#
+# Also remap build-host paths to opaque placeholders so no "/Users/<name>" or
+# "/Volumes/<disk>" leaks into shipped binaries. Rust's panic!()/file!() and
+# C++ debug info otherwise embed absolute source paths as literal strings.
+PROJ_ROOT="$(cd "$PWD/../.." && pwd)"
+export CFLAGS="$CFLAGS -march=westmere -ffile-prefix-map=$PROJ_ROOT=/sierra-fox -ffile-prefix-map=$PWD=/sierra-fox-build -ffile-prefix-map=$HOME=/home"
+export CXXFLAGS="$CXXFLAGS -march=westmere -ffile-prefix-map=$PROJ_ROOT=/sierra-fox -ffile-prefix-map=$PWD=/sierra-fox-build -ffile-prefix-map=$HOME=/home"
+export RUSTFLAGS="$RUSTFLAGS -C target-cpu=westmere --remap-path-prefix=$PROJ_ROOT=/sierra-fox --remap-path-prefix=$PWD=/sierra-fox-build --remap-path-prefix=$HOME=/home"
